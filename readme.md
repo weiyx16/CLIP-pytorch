@@ -1,6 +1,6 @@
 # CLIP Model file and pretrained state_dict
 
-An replication of [CLIP](https://github.com/openai/CLIP). Since the offical repo only provides **a JIT version model (BIT-B-32)**, it's not convenient to modify. And here is an **non-JIT version model**. By this, you can change as you will.
+An replication of [CLIP](https://github.com/openai/CLIP). Since the offical repo only provides **a JIT version model (VIT-B-32)**, it's not convenient to modify. And here is an **non-JIT version model**. By this, you can change as you will.
 
 ## Usage
 
