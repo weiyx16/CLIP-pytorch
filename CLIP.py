@@ -93,13 +93,13 @@ class ResidualAttentionBlock(nn.Module):
         # different layernorm location: https://github.com/openai/gpt-2/blob/master/src/model.py#L123
         # https://d4mucfpksywv.cloudfront.net/better-language-models/language-models.pdf
         self.ln_1 = self.ln_1.float()
-        hidden_states_to_ln = self.ln_1(hidden_states.type(torch.float32)).type(torch.float16)
+        hidden_states_to_ln = self.ln_1(hidden_states.type(torch.float32)).type(hidden_states.dtype)
         
         attn_outputs = self.attn(hidden_states_to_ln)
         hidden_states = attn_outputs + hidden_states
 
         self.ln_2 = self.ln_2.float()
-        hidden_states_to_ln = self.ln_2(hidden_states.type(torch.float32)).type(torch.float16)
+        hidden_states_to_ln = self.ln_2(hidden_states.type(torch.float32)).type(hidden_states.dtype)
 
         mlp_outputs = self.mlp(hidden_states_to_ln)
         # mlp_outputs = self.dropout_hid(mlp_outputs)
@@ -123,7 +123,7 @@ class Transformer(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    """This support for BIT-32 with 224*224 input only (seq:7*7+1=50)
+    """This support for VIT-32 with 224*224 input only (seq:7*7+1=50)
     `input`: (bs*49) * 3 * 32 * 32
     """
     def __init__(self, patch_number=49, patch_size=32, proj_size=512, num_hidden_layers=12, hidden_size=768, num_attention_heads=12, attention_probs_dropout_prob=0.1, hidden_dropout_prob=0.1):
@@ -146,6 +146,7 @@ class VisualTransformer(nn.Module):
 
     def forward(self, input):
         # input: (49*bs)*3*32*32 to (49*bs)*768
+        input = input.type(self.class_embedding.dtype)
         input = self.conv1(input)
         # bs*49*768
         vis_emb = input.reshape(-1, self.patch_number, self.hidden_size)
@@ -158,7 +159,7 @@ class VisualTransformer(nn.Module):
         # bs*50*768
         input_emb = torch.add(seq_emb, pos_emb)
         self.ln_pre = self.ln_pre.float()
-        input_emb = self.ln_pre(input_emb.type(torch.float32)).type(torch.float16)
+        input_emb = self.ln_pre(input_emb.type(torch.float32)).type(input_emb.dtype)
         
         # bs*50*768
         output_emb = self.transformer(input_emb)
@@ -166,7 +167,7 @@ class VisualTransformer(nn.Module):
         output = output_emb[:, 0, :].view(-1, output_emb.size(-1))
         # bs*512
         self.ln_post = self.ln_post.float()
-        output = self.ln_post(output.type(torch.float32)).type(torch.float16)
+        output = self.ln_post(output.type(torch.float32)).type(input_emb.dtype)
         return torch.matmul(output, self.proj)
 
 
@@ -202,7 +203,7 @@ class CLIP(nn.Module):
         `input`: bs*self.context_length
         """
         # bs*77*512
-        token_emb = self.token_embedding(input).type(torch.float16)
+        token_emb = self.token_embedding(input)
 
         # bs*77
         # TODO: maybe not solid to pick the argmax one...
@@ -211,7 +212,7 @@ class CLIP(nn.Module):
         grid_ind, grid_pos = torch.meshgrid(torch.arange(seq_end.size(0), dtype=torch.long, device=token_emb.device),
                                             torch.arange(self.context_length.item(), dtype=torch.long, device=token_emb.device))
         # 1*77*512
-        pos_emb = self.positional_embedding.unsqueeze(0).type(torch.float16)
+        pos_emb = self.positional_embedding.unsqueeze(0)
 
         # bs*77*512 to permute 77*bs*512
         input_emb = torch.add(token_emb, pos_emb).permute(1, 0, 2)
@@ -222,9 +223,8 @@ class CLIP(nn.Module):
         #   For computational efficiency, the max sequence length was capped at 76. The text sequence is bracketed with [SOS] and [EOS] tokens 
         # and the activations of the highest layer of the transformer at the [EOS] token are treated as the feature representation of the text
         # which is layer normalized and then linearly projected into the multi-modal embedding space.
-        output_emb = output_emb.type(torch.float32)
         self.ln_final = self.ln_final.float()
-        output = self.ln_final(output_emb).type(torch.float16)
+        output = self.ln_final(output_emb.type(torch.float32)).type(token_emb.dtype)
 
         output = torch.matmul(output[grid_pos == seq_end].view(-1, output.size(-1)), self.text_projection.to(device=token_emb.device))
         return output

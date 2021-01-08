@@ -10,18 +10,22 @@ Please ref to the official repo [CLIP](https://github.com/openai/CLIP), and chec
 
 ### Inference
 
-An example to use it for inference is here: [**Test on GPU & fp16 & text branch only**]
+An example to use it for inference is here: [**Test on text branch only**]
 ```python
 from CLIP import CLIP
 from clip_tokenizer import SimpleTokenizer 
 import torch
 
 tokenizer = SimpleTokenizer(bpe_path=${BPEPATH})
-
 model = CLIP(attention_probs_dropout_prob=0, hidden_dropout_prob=0)
 state_dict = torch.load(${MODELPATH})
 model.load_state_dict(state_dict)
-model.cuda().eval().half()
+is_fp16 = False
+device = "cuda" if torch.cuda.is_available() else "cpu"
+if is_fp16:
+    model.to(device=device).eval().half()
+else:
+    model.to(device=device).eval().float()
 
 with torch.no_grad():
     query = ["What will be Covid-19's long-term global economic impact?"]
@@ -34,7 +38,7 @@ with torch.no_grad():
         tokens = torch.tensor(tokens[:length-1]+tokens[-1:])
         text_input[i, :length] = tokens
 
-    emb = model.encode_text(text_input.cuda())
+    emb = model.encode_text(text_input.to(device=device))
 ```
 
 ## Thanks
