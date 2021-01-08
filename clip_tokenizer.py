@@ -3,6 +3,7 @@ import gzip
 import html
 import os
 from functools import lru_cache
+import torch
 
 import ftfy
 import regex as re
@@ -55,7 +56,7 @@ def whitespace_clean(text):
 
 
 class SimpleTokenizer(object):
-    def __init__(self, bpe_path: str = "bpe_simple_vocab_16e6.txt.gz"):
+    def __init__(self, bpe_path: str = "bpe_simple_vocab_16e6.txt.gz", context_length = 77):
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
         merges = gzip.open(bpe_path).read().decode("utf-8").split('\n')
@@ -71,6 +72,7 @@ class SimpleTokenizer(object):
         self.bpe_ranks = dict(zip(merges, range(len(merges))))
         self.cache = {'<|startoftext|>': '<|startoftext|>', '<|endoftext|>': '<|endoftext|>'}
         self.pat = re.compile(r"""<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+""", re.IGNORECASE)
+        self.context_length = context_length
 
     def bpe(self, token):
         if token in self.cache:
@@ -113,7 +115,7 @@ class SimpleTokenizer(object):
         self.cache[token] = word
         return word
 
-    def encode(self, text):
+    def _encode(self, text):
         bpe_tokens = []
         text = whitespace_clean(basic_clean(text)).lower()
         for token in re.findall(self.pat, text):
@@ -125,3 +127,14 @@ class SimpleTokenizer(object):
         text = ''.join([self.decoder[token] for token in tokens])
         text = bytearray([self.byte_decoder[c] for c in text]).decode('utf-8', errors="replace").replace('</w>', ' ')
         return text
+
+    def encode(self, text: list):
+        text_tokens = [self._encode(desc + " <|endoftext|>") for desc in text]
+        text_input = torch.zeros(len(text_tokens), self.context_length, dtype=torch.long)
+
+        for i, tokens in enumerate(text_tokens):
+            # truncate and keep EOS unremoved
+            length = min(len(tokens), self.context_length)
+            tokens = torch.tensor(tokens[:length-1]+tokens[-1:])
+            text_input[i, :length] = tokens
+        return text_input

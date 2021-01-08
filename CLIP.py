@@ -3,6 +3,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 import math
+from PIL import Image
+from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+
+def build_transform(n_px):
+    transform = Compose([
+            Resize(n_px, interpolation=Image.BICUBIC),
+            CenterCrop(n_px),
+            lambda image: image.convert("RGB"),
+            ToTensor(),
+            Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+        ])
+    return transform
 
 
 class QuickGELU(nn.Module):
@@ -130,7 +142,7 @@ class VisualTransformer(nn.Module):
         super(VisualTransformer, self).__init__()
         self.class_embedding =  nn.Parameter(torch.ones((hidden_size)), requires_grad=True)
         self.positional_embedding = nn.Parameter(torch.ones((patch_number+1, hidden_size)), requires_grad=True)
-        self.conv1 = nn.Conv2d(3, hidden_size, patch_size, bias=False)
+        self.conv1 = nn.Conv2d(3, hidden_size, kernel_size=patch_size, stride=patch_size, bias=False)
         self.ln_pre = nn.LayerNorm(hidden_size, eps=1e-5)
         self.transformer = Transformer(num_hidden_layers=num_hidden_layers,
                                         hidden_size=hidden_size, 
@@ -151,7 +163,7 @@ class VisualTransformer(nn.Module):
         # bs*49*768
         vis_emb = input.reshape(-1, self.patch_number, self.hidden_size)
         # bs*1*768
-        cls_emb = self.class_embedding.unsqueeze(0).unsqueeze(1).repeated(vis_emb.size(0), 1, 1)
+        cls_emb = self.class_embedding.unsqueeze(0).unsqueeze(1).repeat(vis_emb.size(0), 1, 1)
         # bs*50*768
         seq_emb = torch.cat((cls_emb, vis_emb), dim=1)
         # 1*50*768
@@ -159,10 +171,10 @@ class VisualTransformer(nn.Module):
         # bs*50*768
         input_emb = torch.add(seq_emb, pos_emb)
         self.ln_pre = self.ln_pre.float()
-        input_emb = self.ln_pre(input_emb.type(torch.float32)).type(input_emb.dtype)
+        input_emb = self.ln_pre(input_emb.type(torch.float32)).type(input_emb.dtype).permute(1, 0, 2)
         
         # bs*50*768
-        output_emb = self.transformer(input_emb)
+        output_emb = self.transformer(input_emb).permute(1, 0, 2)
         # bs*768
         output = output_emb[:, 0, :].view(-1, output_emb.size(-1))
         # bs*512
@@ -237,17 +249,19 @@ class CLIP(nn.Module):
         output = self.visual(image)
         return output
 
-    def forward(self, image, input):
+    def forward(self, image, input, return_loss=False):
         text_latents = self.encode_text(input)
         image_latents = self.encode_image(image)
         logit_scale = self.logit_scale.exp()
 
         text_latents, image_latents = map(lambda t: F.normalize(t, p = 2, dim = -1), (text_latents, image_latents))
-        labels = torch.arange(input.size(0), device = image_latents.device)
         sim_i_2_t = torch.matmul(torch.mul(logit_scale, image_latents), torch.t(text_latents))
-        sim_t_2_i = torch.matmul(torch.mul(logit_scale, text_latents), torch.t(image_latents))
+        sim_t_2_i = sim_i_2_t.t() #torch.matmul(torch.mul(logit_scale, text_latents), torch.t(image_latents))
         
-        loss_t_2_i = F.cross_entropy(sim_t_2_i, labels)
-        loss_i_2_t = F.cross_entropy(sim_i_2_t, labels)
-        
-        return sim_i_2_t, sim_t_2_i, loss_i_2_t, loss_t_2_i
+        if return_loss:
+            assert image.size(0) == input.size(0), "Not Support for unbalanced image-text pair"
+            loss_t_2_i = F.cross_entropy(sim_t_2_i, torch.arange(input.size(0), device = image_latents.device))
+            loss_i_2_t = F.cross_entropy(sim_i_2_t, torch.arange(image.size(0), device = image_latents.device))
+            return sim_i_2_t, sim_t_2_i, loss_i_2_t, loss_t_2_i
+        else:
+            return sim_i_2_t, sim_t_2_i
