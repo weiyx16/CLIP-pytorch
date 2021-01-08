@@ -10,16 +10,17 @@ Please ref to the official repo [CLIP](https://github.com/openai/CLIP), and chec
 
 ### Inference
 
-An example to use it for inference is here: [**Test on text branch only**]
+An example to use it for inference is here:
 ```python
-from CLIP import CLIP
+from CLIP import CLIP, build_transform
 from clip_tokenizer import SimpleTokenizer 
+from PIL import Image
 import torch
 
-tokenizer = SimpleTokenizer(bpe_path=${BPEPATH})
 model = CLIP(attention_probs_dropout_prob=0, hidden_dropout_prob=0)
-state_dict = torch.load(${MODELPATH})
-model.load_state_dict(state_dict)
+model.load_state_dict(state_dict = torch.load(${MODELPATH}))
+tokenizer = SimpleTokenizer(bpe_path=${BPEPATH}, context_length=model.context_length.item())
+transform = build_transform(model.input_resolution.item())
 is_fp16 = False
 device = "cuda" if torch.cuda.is_available() else "cpu"
 if is_fp16:
@@ -28,17 +29,16 @@ else:
     model.to(device=device).eval().float()
 
 with torch.no_grad():
-    query = ["What will be Covid-19's long-term global economic impact?"]
-    text_tokens = [tokenizer.encode("This is " + desc + "<|endoftext|>") for desc in query]
-    text_input = torch.zeros(len(text_tokens), model.context_length, dtype=torch.long)
+    query = ["a diagram", "a dog", "a cat"]
+    text = tokenizer.encode(query).to(device)
+    text_features = model.encode_text(text)
 
-    for i, tokens in enumerate(text_tokens):
-        # truncate and keep EOS unremoved
-        length = min(len(tokens), model.context_length.item())
-        tokens = torch.tensor(tokens[:length-1]+tokens[-1:])
-        text_input[i, :length] = tokens
+    image = transform(Image.open("./CLIP.png")).unsqueeze(0).to(device)
+    image_features = model.encode_image(image)
 
-    emb = model.encode_text(text_input.to(device=device))
+    logits_per_image, logits_per_text = model(image, text, return_loss=False)
+    probs = logits_per_image.softmax(dim=-1).cpu().numpy()
+print("Label probs:", probs) # prints: [[0.9729581 , 0.01252346, 0.01451846]]
 ```
 
 ## Thanks
