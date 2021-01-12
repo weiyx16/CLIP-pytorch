@@ -159,9 +159,10 @@ class VisualTransformer(nn.Module):
     def forward(self, input):
         # input: (49*bs)*3*32*32 to (49*bs)*768
         input = input.type(self.class_embedding.dtype)
+        # bs*768*7*7
         input = self.conv1(input)
         # bs*49*768
-        vis_emb = input.reshape(-1, self.patch_number, self.hidden_size)
+        vis_emb = input.reshape(-1, self.hidden_size, self.patch_number).permute(0, 2, 1)
         # bs*1*768
         cls_emb = self.class_embedding.unsqueeze(0).unsqueeze(1).repeat(vis_emb.size(0), 1, 1)
         # bs*50*768
@@ -172,7 +173,6 @@ class VisualTransformer(nn.Module):
         input_emb = torch.add(seq_emb, pos_emb)
         self.ln_pre = self.ln_pre.float()
         input_emb = self.ln_pre(input_emb.type(torch.float32)).type(input_emb.dtype).permute(1, 0, 2)
-        
         # bs*50*768
         output_emb = self.transformer(input_emb).permute(1, 0, 2)
         # bs*768
