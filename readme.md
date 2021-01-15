@@ -1,5 +1,7 @@
 # CLIP Model file and pretrained state_dict
 
+**Update 01/16/2021**:::: For now, the official codebase has released a non-JIT model. You can ref to the standard implementation.  
+
 An replication of [CLIP](https://github.com/openai/CLIP). Since the offical repo only provides **a JIT version model (VIT-B-32)**, it's not convenient to modify. And here is an **non-JIT version model**. By this, you can change as you will.
 
 ## Usage
